@@ -189,8 +189,8 @@ async def register_commands(tree: discord.app_commands.CommandTree, client, db: 
             e.add_field(name="Release date", value=game_details["release_date"]["date"])
         await interaction.response.send_message(embed=e)
 
-    @tree.command(name="details", description="Get details of the game")
-    async def details(interaction: discord.Interaction, game_name: str):
+    @tree.command(name="get_details", description="Get details of the game")
+    async def get_details(interaction: discord.Interaction, game_name: str):
         server_id = interaction.guild_id
 
         db_cursor = db.cursor()
@@ -219,7 +219,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client, db: 
         not_out = game_details["release_date"]["coming_soon"]
         game_desc = game_details["short_description"]
 
-        e = discord.Embed(title="Random game")
+        e = discord.Embed(title="Game details")
         e.set_image(url=game_image)    
         e.add_field(name="Name", value=game_name)
         e.add_field(name="Price", value=game_price)
