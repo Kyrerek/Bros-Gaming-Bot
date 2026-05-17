@@ -11,6 +11,8 @@ bot_role = "Gamer"
 
 async def get_game_deatils(id, currency):
     url = f"https://store.steampowered.com/api/appdetails?appids={id}&cc={currency}"
+    print(f"Fetching: {url}")
+    print(f"Currency from DB: {currency}")
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json()
