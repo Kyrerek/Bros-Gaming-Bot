@@ -33,8 +33,15 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     @tree.command(name="add_link", description="Add a game by a link")
     @discord.app_commands.describe(link="Link to the game")
     async def add_link(interaction: discord.Interaction, link: str):
+        server_id = interaction.guild_id
+
+        db_cursor = db.cursor()
+        db_cursor.execute("""SELECT game_currency FROM servers
+                          WHERE server_id=%s""", (server_id,))
+        cc = db_cursor.fetchone()[0]
+
         game_id = re.search(r'/app/(\d+)', link).group(1)
-        game_details = await get_game_deatils(game_id, "US")
+        game_details = await get_game_deatils(game_id, cc)
         if game_details is None:
             await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
             return
@@ -48,14 +55,12 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         game_image = game_details["header_image"]
         not_out = game_details["release_date"]["coming_soon"]
 
-        server_id = interaction.guild_id
         curr_date = datetime.now()
 
         e = discord.Embed()
 
         try:
-            db_cursor = db.cursor()
-            db_cursor.execute(f"""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price, not_out) VALUES
+            db_cursor.execute("""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price, not_out) VALUES
                             (%s, %s, %s, %s, %s, %s, %s, %s)""", (server_id, 
                                                           game_name, 
                                                           link, 
