@@ -26,13 +26,14 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
         for s in servers:
             if s[1] is not None:
                 channel = client.get_channel(s[1])
+                if channel is None:
+                    continue
                 server = channel.guild
                 role = discord.utils.get(server.roles, name = bot_role)
 
                 db_cursor.execute("""SELECT store_id, last_price, name, link FROM games
                                   WHERE server_index=%s""", (s[0],))
                 games = db_cursor.fetchall()
-
                 for g in games:
                     game_details = await get_game_deatils(g[0], s[2])
                     
