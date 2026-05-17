@@ -40,6 +40,7 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                         continue
                     
                     price = game_details["price_overview"]["final"]
+                    print("Check sale test:", s[0], g[2], g[1], price)
                     if  price < g[1]:
 
                         e = discord.Embed(title="🚨!DISCOUNT ALERT!🚨", color=discord.Color.dark_gold())

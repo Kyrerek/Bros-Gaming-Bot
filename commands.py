@@ -11,8 +11,6 @@ bot_role = "Gamer"
 
 async def get_game_deatils(id, currency):
     url = f"https://store.steampowered.com/api/appdetails?appids={id}&cc={currency}"
-    print(f"Fetching: {url}")
-    print(f"Currency from DB: {currency}")
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json()
@@ -168,7 +166,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         db_cur.execute("""SELECT game_currency FROM servers
                        WHERE server_id=%s""", (server_id,))
         cc = db_cur.fetchone()
-        game_details = await get_game_deatils(game[0], cc)
+        game_details = await get_game_deatils(game[0], cc[0])
         if game_details is None:
             await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
             return
@@ -211,7 +209,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         db_cursor.execute("""SELECT game_currency FROM servers
                        WHERE server_id=%s""", (server_id,))
         cc = db_cursor.fetchone()
-        game_details = await get_game_deatils(game[0], cc)
+        game_details = await get_game_deatils(game[0], cc[0])
         if game_details is None:
             await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
             return
