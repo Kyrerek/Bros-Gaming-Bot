@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import os
 import psycopg2
 from commands import register_commands
-
+from tasks import register_tasks
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
@@ -21,6 +21,7 @@ db_con.autocommit = False
 @client.event
 async def on_ready():
     await register_commands(tree, client, db_con)
+    await register_tasks(tree, client, db_con)
     await tree.sync()
     print(f"Bot is ready: {client.user.name}")
 

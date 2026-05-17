@@ -4,4 +4,9 @@ version = "0.1.0"
 description = "A bot to suggest new games to play with bros"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = ["discord.py", "python-dotenv", "requests", "psycopg2-binary"]
+dependencies = ["discord.py", 
+    "python-dotenv", 
+    "requests", 
+    "psycopg2-binary; sys_platform == 'linux'",
+    "psycopg2; sys_platform == 'darwin'"
+    ]

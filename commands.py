@@ -1,7 +1,7 @@
 import discord
 import requests
 import re
-import sqlite3
+import psycopg2
 from datetime import datetime
 import traceback
 import math
@@ -9,8 +9,8 @@ import random
 
 bot_role = "Gamer" 
 
-async def get_game_deatils(id):
-    url = f"https://store.steampowered.com/api/appdetails?appids={id}"
+async def get_game_deatils(id, currency):
+    url = f"https://store.steampowered.com/api/appdetails?appids={id}&cc={currency}"
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json()
@@ -18,7 +18,7 @@ async def get_game_deatils(id):
             return data[str(id)]["data"]
     return None
 
-async def register_commands(tree: discord.app_commands.CommandTree, client, db: sqlite3.Connection):
+async def register_commands(tree: discord.app_commands.CommandTree, client: discord.Client, db):
 
     @tree.command(name="subscribe", description="Get a role for gaming alerts")
     async def sub(interaction: discord.Interaction):
@@ -34,7 +34,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client, db: 
     @discord.app_commands.describe(link="Link to the game")
     async def add_link(interaction: discord.Interaction, link: str):
         game_id = re.search(r'/app/(\d+)', link).group(1)
-        game_details = await get_game_deatils(game_id)
+        game_details = await get_game_deatils(game_id, "US")
         if game_details is None:
             await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
             return
@@ -55,8 +55,8 @@ async def register_commands(tree: discord.app_commands.CommandTree, client, db: 
 
         try:
             db_cursor = db.cursor()
-            db_cursor.execute(f"""INSERT INTO games(server_index, name, link, date, store_id, platform) VALUES
-                            (%s, %s, %s, %s, %s, %s)""", (server_id, game_name, link, curr_date, game_id, "steam"))
+            db_cursor.execute(f"""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price) VALUES
+                            (%s, %s, %s, %s, %s, %s)""", (server_id, game_name, link, curr_date, game_id, "steam", game_details["price_overview"]["final"] if game_price != "Not mentioned" and game_price != "free" else 0))
             db.commit()
         except:
             traceback.print_exc()
@@ -163,7 +163,10 @@ async def register_commands(tree: discord.app_commands.CommandTree, client, db: 
         
         game = random.choice(games)
 
-        game_details = await get_game_deatils(game[0])
+        db_cur.execute("""SELECT game_currency FROM servers
+                       WHERE server_id=%s""", (server_id,))
+        cc = db_cur.fetchone()
+        game_details = await get_game_deatils(game[0], cc)
         if game_details is None:
             await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
             return
@@ -190,6 +193,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client, db: 
         await interaction.response.send_message(embed=e)
 
     @tree.command(name="get_details", description="Get details of the game")
+    @discord.app_commands.describe(game_name = "Name of the game")
     async def get_details(interaction: discord.Interaction, game_name: str):
         server_id = interaction.guild_id
 
@@ -202,7 +206,10 @@ async def register_commands(tree: discord.app_commands.CommandTree, client, db: 
             await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on the list"), ephemeral=True)
             return
 
-        game_details = await get_game_deatils(game[0])
+        db_cursor.execute("""SELECT game_currency FROM servers
+                       WHERE server_id=%s""", (server_id,))
+        cc = db_cursor.fetchone()
+        game_details = await get_game_deatils(game[0], cc)
         if game_details is None:
             await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
             return
@@ -228,6 +235,87 @@ async def register_commands(tree: discord.app_commands.CommandTree, client, db: 
         if not_out:
             e.add_field(name="Release date", value=game_details["release_date"]["date"])
         await interaction.response.send_message(embed=e)
+
+    @tree.command(name="set_alert_channel", description="Set a channel for gaming alerts (sales, releases)")
+    @discord.app_commands.describe(channel = "Gaming alert channel")
+    async def set_alert_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+        channel_id = channel.id
+        server_id = interaction.guild_id
+
+        e = discord.Embed()
+
+        try:
+            db_cursor = db.cursor()
+            db_cursor.execute("""UPDATE servers 
+                          SET alert_channel_id=%s
+                          WHERE server_id=%s""", (channel_id, server_id))
+            db.commit()
+        except:
+            traceback.print_tb()
+            m = traceback.format_exc()
+            e.title = "Error"
+            e.description = f"Something went wrong :c\n{m}"
+        else:
+            e.title = "Success"
+            e.description = "Everything went good c:"
+        
+        await interaction.response.send_message(embed=e, ephemeral=True)
+    
+    @tree.command(name="set_currency", description="Set currency for games")
+    @discord.app_commands.describe(cc = "Currency code (default is US)")
+    @discord.app_commands.choices(cc = [
+        discord.app_commands.Choice(name="Polish Zloty (PLN)", value="PL"),
+        discord.app_commands.Choice(name="US Dollar (USD)", value="US"),
+        discord.app_commands.Choice(name="Euro - Germany (EUR)", value="DE"),
+        discord.app_commands.Choice(name="Euro - France (EUR)", value="FR"),
+        discord.app_commands.Choice(name="British Pound (GBP)", value="GB"),
+        discord.app_commands.Choice(name="Ukrainian Hryvnia (UAH)", value="UA"),
+        discord.app_commands.Choice(name="Czech Koruna (CZK)", value="CZ"),
+        discord.app_commands.Choice(name="Hungarian Forint (HUF)", value="HU"),
+        discord.app_commands.Choice(name="Norwegian Krone (NOK)", value="NO"),
+        discord.app_commands.Choice(name="Swedish Krona (SEK)", value="SE"),
+        discord.app_commands.Choice(name="Danish Krone (DKK)", value="DK"),
+        discord.app_commands.Choice(name="Swiss Franc (CHF)", value="CH"),
+        discord.app_commands.Choice(name="Canadian Dollar (CAD)", value="CA"),
+        discord.app_commands.Choice(name="Australian Dollar (AUD)", value="AU"),
+        discord.app_commands.Choice(name="Brazilian Real (BRL)", value="BR"),
+        discord.app_commands.Choice(name="Turkish Lira (TRY)", value="TR"),
+        discord.app_commands.Choice(name="Russian Ruble (RUB)", value="RU"),
+        discord.app_commands.Choice(name="Japanese Yen (JPY)", value="JP"),
+        discord.app_commands.Choice(name="South Korean Won (KRW)", value="KR"),
+        discord.app_commands.Choice(name="Chinese Yuan (CNY)", value="CN"),
+        discord.app_commands.Choice(name="Indian Rupee (INR)", value="IN"),
+        discord.app_commands.Choice(name="Mexican Peso (MXN)", value="MX"),
+        discord.app_commands.Choice(name="Argentine Peso (ARS)", value="AR"),
+        discord.app_commands.Choice(name="New Zealand Dollar (NZD)", value="NZ"),
+        discord.app_commands.Choice(name="Singapore Dollar (SGD)", value="SG")
+    ])
+    async def set_currency(interaction: discord.Interaction, cc: str):
+        server_id = interaction.guild_id
+
+        e = discord.Embed()
+
+        try:
+            db_cursor = db.cursor()
+            db_cursor.execute("""UPDATE servers 
+                          SET game_currency=%s
+                          WHERE server_id=%s""", (cc, server_id))
+            db.commit()
+        except:
+            traceback.print_tb()
+            m = traceback.format_exc()
+            e.title = "Error"
+            e.description = f"Something went wrong :c\n{m}"
+        else:
+            e.title = "Success"
+            e.description = "Everything went good c:"
+        
+        await interaction.response.send_message(embed=e, ephemeral=True)
+
+    #TODO 
+    # 3. check for releases
+    # 4. more platforms
+    # 5. command for lowest price omn the internet
 
         
         
