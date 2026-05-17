@@ -55,7 +55,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
 
         try:
             db_cursor = db.cursor()
-            db_cursor.execute(f"""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price, is_out) VALUES
+            db_cursor.execute(f"""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price, not_out) VALUES
                             (%s, %s, %s, %s, %s, %s, %s, %s)""", (server_id, 
                                                           game_name, 
                                                           link, 
