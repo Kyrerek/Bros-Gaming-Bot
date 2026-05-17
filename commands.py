@@ -55,8 +55,15 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
 
         try:
             db_cursor = db.cursor()
-            db_cursor.execute(f"""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price) VALUES
-                            (%s, %s, %s, %s, %s, %s)""", (server_id, game_name, link, curr_date, game_id, "steam", game_details["price_overview"]["final"] if game_price != "Not mentioned" and game_price != "free" else 0))
+            db_cursor.execute(f"""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price, is_out) VALUES
+                            (%s, %s, %s, %s, %s, %s, %s, %s)""", (server_id, 
+                                                          game_name, 
+                                                          link, 
+                                                          curr_date, 
+                                                          game_id, 
+                                                          "steam", 
+                                                          game_details["price_overview"]["final"] if game_price != "Not mentioned" and game_price != "free" else 0),
+                                                          not_out)
             db.commit()
         except:
             traceback.print_exc()
