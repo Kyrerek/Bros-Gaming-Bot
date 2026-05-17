@@ -62,14 +62,14 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                                                           curr_date, 
                                                           game_id, 
                                                           "steam", 
-                                                          game_details["price_overview"]["final"] if game_price != "Not mentioned" and game_price != "free" else 0),
-                                                          not_out)
+                                                          game_details["price_overview"]["final"] if game_price != "Not mentioned" and game_price != "free" else 0,
+                                                          not_out))
             db.commit()
         except:
             traceback.print_exc()
             e.title = "Error"
             e.description = "This game already exists on the list"
-            await interaction.response.send_message(embed=e)
+            await interaction.response.send_message(embed=e, ephemeral=True)
         else:
             e.title = 'Adding a game'
             e.description = f'{interaction.user.mention} has just added {link}'
@@ -320,9 +320,10 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         await interaction.response.send_message(embed=e, ephemeral=True)
 
     #TODO 
-    # 3. check for releases
-    # 4. more platforms
-    # 5. command for lowest price omn the internet
+    # 1. update price when changing currency
+    # 1. more platforms
+    # 2. command for lowest price omn the internet
+
 
         
         
