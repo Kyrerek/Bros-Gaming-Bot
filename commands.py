@@ -6,6 +6,7 @@ from datetime import datetime
 import traceback
 import math
 import random
+from game import Game
 
 bot_role = "Gamer" 
 
@@ -41,6 +42,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         cc = db_cursor.fetchone()[0]
 
         game_id = re.search(r'/app/(\d+)', link).group(1)
+        game = Game(game_id, cc)
         game_details = await get_game_deatils(game_id, cc)
         if game_details is None:
             await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
@@ -327,7 +329,35 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     #TODO 
     # 1. update price when changing currency
     # 1. more platforms
-    # 2. command for lowest price omn the internet
+
+    @tree.command(name="lowest_price", description="Get lowest price of a given game")
+    @discord.app_commands.describe(game_name = "Name of the game")
+    async def lowest_price(interaction: discord.Interaction, game_name: str):
+        server_id = interaction.guild_id
+
+        db_cursor = db.cursor()
+        db_cursor.execute(f"""SELECT store_id FROM games
+                            WHERE server_index=%s AND name=%s""", (server_id, game_name))  
+        game_record = db_cursor.fetchone()
+
+        db_cursor.execute("""SELECT game_currency FROM servers
+                       WHERE server_id=%s""", (server_id,))
+        cc = db_cursor.fetchone()
+
+        game = Game(game_record[0], cc[0])
+        lowest = game.lowest_price()
+        lowest_retail = lowest[0]+' '+lowest[3]
+        lowest_keyshop = lowest[1]+' '+lowest[3]
+        lowest_url = lowest[2]
+
+        e = discord.Embed(title="Lowest price 🤑")
+        e.add_field(name="Name", value=game_name)
+        e.add_field(name="Lowest retail price", value=lowest_retail)
+        e.add_field(name="Lowest keyshop price", value=lowest_keyshop)
+        e.add_field(name="GG Deals link", value=lowest_url)
+        e.set_image(url=game.image)
+        e.color = discord.Color.green()
+        await interaction.response.send_message(embed=e)
 
 
         
