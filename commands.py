@@ -1,36 +1,28 @@
 import discord
 import requests
 import re
-import psycopg2
 from datetime import datetime
 import traceback
 import math
 import random
 from game import Game
+import embed_generator as eg
+from field import Field
 
 bot_role = "Gamer" 
 
-async def get_game_deatils(id, currency):
-    url = f"https://store.steampowered.com/api/appdetails?appids={id}&cc={currency}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        if data[str(id)]["success"]:
-            return data[str(id)]["data"]
-    return None
-
 async def register_commands(tree: discord.app_commands.CommandTree, client: discord.Client, db):
 
+    #TODO: Notice about permission (handling exception)
     @tree.command(name="subscribe", description="Get a role for gaming alerts")
     async def sub(interaction: discord.Interaction):
         role = discord.utils.get(interaction.guild.roles, name=bot_role)
         if role:
             await interaction.user.add_roles(role)
-            e = discord.Embed()
-            e.title = "Success"
-            e.description = f"{interaction.user.mention} got a role {role}"
+            e = eg.success_embed()
             await interaction.response.send_message(embed=e, ephemeral=True)
 
+    #TODO: Handling bad link/invalid text, optional: new stores
     @tree.command(name="add_link", description="Add a game by a link")
     @discord.app_commands.describe(link="Link to the game")
     async def add_link(interaction: discord.Interaction, link: str):
@@ -42,24 +34,22 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         cc = db_cursor.fetchone()[0]
 
         game_id = re.search(r'/app/(\d+)', link).group(1)
-        game = Game(game_id, cc)
-        game_details = await get_game_deatils(game_id, cc)
-        if game_details is None:
-            await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
-            return
-        game_name = game_details['name']
-        game_price = ""
         try:
-            game_price = "free" if game_details["is_free"] else game_details["price_overview"]["final_formatted"]
+            game = Game(game_id, cc)
+        except NameError as e:
+            embed = eg.error_embed(e.args)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
         except:
-            game_price = "Not mentioned"
-        
-        game_image = game_details["header_image"]
-        not_out = game_details["release_date"]["coming_soon"]
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
+            return
+
+        game_name = game.title
+        game_price = game.price_formatted
+        not_out = game.not_out
 
         curr_date = datetime.now()
-
-        e = discord.Embed()
 
         try:
             db_cursor.execute("""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price, not_out) VALUES
@@ -69,30 +59,41 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                                                           curr_date, 
                                                           game_id, 
                                                           "steam", 
-                                                          game_details["price_overview"]["final"] if game_price != "Not mentioned" and game_price != "free" else 0,
+                                                          game.price,
                                                           not_out))
             db.commit()
         except:
+            db.rollback()
             traceback.print_exc()
-            e.title = "Error"
-            e.description = "This game already exists on the list"
-            await interaction.response.send_message(embed=e, ephemeral=True)
+            await interaction.response.send_message(embed=eg.error_embed, ephemeral=True)
         else:
-            e.title = 'Adding a game'
-            e.description = f'{interaction.user.mention} has just added {link}'
-            e.set_image(url=game_image)
-            e.add_field(name="Name", value=game_name)
-            e.add_field(name="Price", value=game_price)
+            fields = [Field(name="Name", value=game_name, inline=True), Field(name="Price", value=game_price)]
             if not_out:
-                e.add_field(name="Release date", value=game_details["release_date"]["date"])
+                fields.append(Field(name="Release date", value=game.release_date))
+            e = eg.custom_embed(title='Adding a game ✅', 
+                                image=game.image, 
+                                description=f'{interaction.user.mention} has just added {link}',
+                                color=discord.Color.dark_green(), 
+                                fields=fields)
             await interaction.response.send_message(embed=e)
     
+    async def game_name_autocomplete(interaction: discord.Interaction, current: str):
+        server_id = interaction.guild_id
+        db_cursor = db.cursor()
+        db_cursor.execute(f"""SELECT name FROM games
+                   WHERE server_index = %s AND name LIKE %s
+                    ORDER BY date DESC
+                   LIMIT 25
+                   """,
+                   (server_id, current+'%'))
+        games = db_cursor.fetchall()
+        return [discord.app_commands.Choice(name=g[0], value=g[0]) for g in games]
+
     @tree.command(name="delete_game", description="Delete a game")
     @discord.app_commands.describe(game_name = "Name of the game to delete")
+    @discord.app_commands.autocomplete(game_name = game_name_autocomplete)
     async def delete_game(interaction: discord.Interaction, game_name: str):
         server_id = interaction.guild_id
-
-        e = discord.Embed()
 
         try:
             db_cursor = db.cursor()
@@ -103,14 +104,11 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                               WHERE store_id=%s AND server_index=%s""", (game_id, server_id))
             db.commit()
         except Exception as ex:
+            db.rollback()
             traceback.print_exc()
-            e.title = "Error"
-            e.description = "Something went wrong :c"
-            await interaction.response.send_message(embed=e, ephemeral=True)
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
-            e.title = "Success"
-            e.description = "Everything went good c:"
-            await interaction.response.send_message(embed=e, ephemeral=True)
+            await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
     
     class GamesView(discord.ui.View):
         def __init__(self, games):
@@ -142,6 +140,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                 self.page+=1
                 await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
+    #TODO: new embed and better look
     @tree.command(name="list_games", description="List 10 games, sorted by date")
     async def list_games(interaction: discord.Interaction):
         server_id = interaction.guild_id
@@ -153,7 +152,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
 
         l_games = games[:10]
 
-        embed = discord.Embed(title="List of games", 
+        embed = discord.Embed(title="List of games 📜", 
                               description="\n".join([f"* [{i[0]}]({i[1]})" for i in l_games]) if games else "First use /add_link to add at least one game", 
                               color=discord.Color.blue())
         embed.set_thumbnail(url="https://preview.redd.it/galactus-is-coming-waltuh-v0-nnopft4eilgf1.jpeg?width=640&crop=smart&auto=webp&s=be4554d63dab3ed682f59dc136376e9183d85161")
@@ -179,35 +178,37 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
 
         db_cur.execute("""SELECT game_currency FROM servers
                        WHERE server_id=%s""", (server_id,))
-        cc = db_cur.fetchone()
-        game_details = await get_game_deatils(game[0], cc[0])
-        if game_details is None:
-            await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
-            return
-        game_link = game[1]
-        game_name = game_details['name']
-        game_price = ""
+        cc = db_cur.fetchone()[0]
         try:
-            game_price = "free" if game_details["is_free"] else game_details["price_overview"]["final_formatted"]
+            game_details = Game(game[0], cc)
         except:
-            game_price = "Not mentioned"
-        
-        game_image = game_details["header_image"]
-        not_out = game_details["release_date"]["coming_soon"]
-        game_desc = game_details["short_description"]
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
+            return
 
-        e = discord.Embed(title="Random game")
-        e.set_image(url=game_image)    
-        e.add_field(name="Name", value=game_name)
-        e.add_field(name="Price", value=game_price)
-        e.add_field(name="Link", value=game_link)
-        e.add_field(name="Description", value=game_desc, inline=True)
+        game_name = game_details.title
+        game_price = game_details.price_formatted
+        not_out = game_details.not_out
+        game_link = game[1]
+        game_image = game_details.image
+        game_desc = game_details.desc
+
+        fields = [Field(name="Name", value=game_name, inline=True), 
+                  Field(name="Price", value=game_price),
+                  Field(name="Description", value=game_desc, inline=True),
+                  Field(name="Link", value=game_link)]
         if not_out:
-            e.add_field(name="Release date", value=game_details["release_date"]["date"])
+            fields.insert(2, Field(name="Release date", value=game_details.release_date))
+        e = eg.custom_embed(title="Random game 🎲",
+                            image=game_image,
+                            color=discord.Color.purple(),
+                            fields=fields
+                            )
         await interaction.response.send_message(embed=e)
 
     @tree.command(name="get_details", description="Get details of the game")
     @discord.app_commands.describe(game_name = "Name of the game")
+    @discord.app_commands.autocomplete(game_name = game_name_autocomplete)
     async def get_details(interaction: discord.Interaction, game_name: str):
         server_id = interaction.guild_id
 
@@ -217,37 +218,37 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         game = db_cursor.fetchone()
 
         if game is None:
-            await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on the list"), ephemeral=True)
+            await interaction.response.send_message(embed=eg.error_embed(description=f"{game_name} does not exist on the list"), ephemeral=True)
             return
 
         db_cursor.execute("""SELECT game_currency FROM servers
                        WHERE server_id=%s""", (server_id,))
-        cc = db_cursor.fetchone()
-        game_details = await get_game_deatils(game[0], cc[0])
-        if game_details is None:
-            await interaction.response.send_message(embed=discord.Embed(title="Error", description=f"{game_name} does not exist on Steam or there is another error"), ephemeral=True)
-            return
-        
-        game_link = game[1]
-        game_name = game_details['name']
-        game_price = ""
+        cc = db_cursor.fetchone()[0]
         try:
-            game_price = "free" if game_details["is_free"] else game_details["price_overview"]["final_formatted"]
+            game_details = Game(game[0], cc)
         except:
-            game_price = "Not mentioned"
-        
-        game_image = game_details["header_image"]
-        not_out = game_details["release_date"]["coming_soon"]
-        game_desc = game_details["short_description"]
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
+            return
 
-        e = discord.Embed(title="Game details")
-        e.set_image(url=game_image)    
-        e.add_field(name="Name", value=game_name)
-        e.add_field(name="Price", value=game_price)
-        e.add_field(name="Link", value=game_link)
-        e.add_field(name="Description", value=game_desc, inline=True)
+        game_name = game_details.title
+        game_price = game_details.price_formatted
+        not_out = game_details.not_out
+        game_link = game[1]
+        game_image = game_details.image
+        game_desc = game_details.desc
+
+        fields = [Field(name="Name", value=game_name, inline=True), 
+                  Field(name="Price", value=game_price),
+                  Field(name="Description", value=game_desc, inline=True),
+                  Field(name="Link", value=game_link)]
         if not_out:
-            e.add_field(name="Release date", value=game_details["release_date"]["date"])
+            fields.insert(2, Field(name="Release date", value=game_details.release_date))
+        e = eg.custom_embed(title="Game details 📄",
+                            image=game_image,
+                            color=discord.Color.dark_blue(),
+                            fields=fields
+                            )
         await interaction.response.send_message(embed=e)
 
     @tree.command(name="set_alert_channel", description="Set a channel for gaming alerts (sales, releases)")
@@ -265,16 +266,14 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                           WHERE server_id=%s""", (channel_id, server_id))
             db.commit()
         except:
+            db.rollback()
             traceback.print_tb()
             m = traceback.format_exc()
-            e.title = "Error"
-            e.description = f"Something went wrong :c\n{m}"
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
-            e.title = "Success"
-            e.description = "Everything went good c:"
-        
-        await interaction.response.send_message(embed=e, ephemeral=True)
+            await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
     
+    #TODO: update every price when changing currency
     @tree.command(name="set_currency", description="Set currency for games")
     @discord.app_commands.describe(cc = "Currency code (default is US)")
     @discord.app_commands.choices(cc = [
@@ -316,22 +315,17 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                           WHERE server_id=%s""", (cc, server_id))
             db.commit()
         except:
+            db.rollback()
             traceback.print_tb()
             m = traceback.format_exc()
-            e.title = "Error"
-            e.description = f"Something went wrong :c\n{m}"
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
-            e.title = "Success"
-            e.description = "Everything went good c:"
-        
-        await interaction.response.send_message(embed=e, ephemeral=True)
+            await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
 
-    #TODO 
-    # 1. update price when changing currency
-    # 1. more platforms
-
+    #TODO: error handling (e.g. game doesnt exist on ggdeals)
     @tree.command(name="lowest_price", description="Get lowest price of a given game")
     @discord.app_commands.describe(game_name = "Name of the game")
+    @discord.app_commands.autocomplete(game_name = game_name_autocomplete)
     async def lowest_price(interaction: discord.Interaction, game_name: str):
         server_id = interaction.guild_id
 
@@ -346,17 +340,25 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
 
         game = Game(game_record[0], cc[0])
         lowest = game.lowest_price()
-        lowest_retail = lowest[0]+' '+lowest[3]
-        lowest_keyshop = lowest[1]+' '+lowest[3]
+        if lowest[0]:
+            lowest_retail = lowest[0]+' '+lowest[3]
+        else:
+            lowest_retail = "Not mentioned"
+
+        if lowest[1]:
+            lowest_keyshop = lowest[1]+' '+lowest[3]
+        else:
+            lowest_keyshop = "Not mentioned"
         lowest_url = lowest[2]
 
-        e = discord.Embed(title="Lowest price 🤑")
-        e.add_field(name="Name", value=game_name)
-        e.add_field(name="Lowest retail price", value=lowest_retail)
-        e.add_field(name="Lowest keyshop price", value=lowest_keyshop)
-        e.add_field(name="GG Deals link", value=lowest_url)
-        e.set_image(url=game.image)
-        e.color = discord.Color.green()
+        fields = [Field(name="Name", value=game_name, inline=True),
+                  Field(name="Lowest retail price", value=lowest_retail),
+                  Field(name="Lowest keyshop price", value=lowest_keyshop),
+                  Field(name="GG Deals link", value=lowest_url, inline=True)]
+        e = eg.custom_embed(title="Lowest price 🤑", 
+                            image=game.image,
+                            color=discord.Color.green(),
+                            fields=fields)
         await interaction.response.send_message(embed=e)
 
 

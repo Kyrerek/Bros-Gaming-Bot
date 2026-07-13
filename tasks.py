@@ -5,7 +5,7 @@ import requests
 
 bot_role = "Gamer" 
 
-
+#TODO: delete
 async def get_game_deatils(id, currency):
     url = f"https://store.steampowered.com/api/appdetails?appids={id}&cc={currency}"
     response = requests.get(url)
@@ -15,6 +15,7 @@ async def get_game_deatils(id, currency):
             return data[str(id)]["data"]
     return None
 
+#TODO: new game handling and embeds
 async def register_tasks(tree: discord.app_commands.CommandTree, client: discord.Client, db):
 
     @tasks.loop(hours=1)

@@ -29,16 +29,23 @@ class Game:
     def __init__(self, id : int, currency : str):
         data = self._get_game_deatils_by_steam(id, currency)
         if data is None:
-            raise NameError(f"{id} is not existing Steam app id or there is another error")
+            raise NameError(f"{id} is not an existing Steam app id or there is another error with Steam API")
         self.title = data["name"]
         self.id = id
         self.is_free = data["is_free"]
         self.desc = data["short_description"]
         self.image = data["header_image"]
         self.currency = currency
+        self.price = 0
+        self.price_formatted = "FREE"
+
         if not self.is_free:
-            self.price = data["price_overview"]["final"]
-            self.price_formatted = data["price_overview"]["final_formatted"]
+            try:
+                self.price = data["price_overview"]["final"]
+                self.price_formatted = data["price_overview"]["final_formatted"]
+            except:
+                self.price_formatted = "Not mentioned"
+        
         self.not_out = data["release_date"]["coming_soon"]
         if self.not_out:
             self.release_date = data["release_date"]["date"]
@@ -52,7 +59,6 @@ class Game:
             data = response.json()
             if data["success"]:
                 game = data["data"][str(self.id)]
-                print(game)
                 return game["prices"]["currentRetail"], game["prices"]["currentKeyshops"], game["url"], game["prices"]["currency"]
         return None
         
