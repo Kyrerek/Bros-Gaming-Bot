@@ -13,14 +13,24 @@ bot_role = "Gamer"
 
 async def register_commands(tree: discord.app_commands.CommandTree, client: discord.Client, db):
 
-    #TODO: Notice about permission (handling exception)
     @tree.command(name="subscribe", description="Get a role for gaming alerts")
     async def sub(interaction: discord.Interaction):
         role = discord.utils.get(interaction.guild.roles, name=bot_role)
-        if role:
-            await interaction.user.add_roles(role)
-            e = eg.success_embed()
-            await interaction.response.send_message(embed=e, ephemeral=True)
+        try:
+            if role:
+                if role in interaction.user.roles:
+                    await interaction.response.send_message(embed=eg.success_embed("You have already subscribed before"))
+                    return
+                await interaction.user.add_roles(role)
+                await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=eg.error_embed(f"Role {bot_role} doens't exist on this server. Remember to put it under Bros Gaming Bot role!"), ephemeral=True)
+        except discord.errors.Forbidden:
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(f"Bot doens't have permission to add a role to this user. Maybe {bot_role} role is above Bros Gaming Bot role"), ephemeral=True)
+        except:
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(),ephemeral= True)
 
     #TODO: Handling bad link/invalid text, optional: new stores
     @tree.command(name="add_link", description="Add a game by a link")
