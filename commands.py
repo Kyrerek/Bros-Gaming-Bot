@@ -35,7 +35,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     @tree.command(name="add_link", description="Add a game by a link")
     @discord.app_commands.describe(link="Link to the game")
     async def add_link(interaction: discord.Interaction, link: str):
-        if not re.match(r"https://store.steampowered.com/app/\d+/\w+/"):
+        if not re.match(r"https://store.steampowered.com/app/\d+/\w+/", link):
             await interaction.response.send_message(embed=eg.error_embed("This link is not a link to steam app"))
             return
         server_id = interaction.guild_id
