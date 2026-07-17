@@ -19,7 +19,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         try:
             if role:
                 if role in interaction.user.roles:
-                    await interaction.response.send_message(embed=eg.success_embed("You have already subscribed before"))
+                    await interaction.response.send_message(embed=eg.success_embed("You have already subscribed before"), ephemeral=True)
                     return
                 await interaction.user.add_roles(role)
                 await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
@@ -32,10 +32,12 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(),ephemeral= True)
 
-    #TODO: Handling bad link/invalid text, optional: new stores
     @tree.command(name="add_link", description="Add a game by a link")
     @discord.app_commands.describe(link="Link to the game")
     async def add_link(interaction: discord.Interaction, link: str):
+        if not re.match(r"https://store.steampowered.com/app/\d+/\w+/"):
+            await interaction.response.send_message(embed=eg.error_embed("This link is not a link to steam app"))
+            return
         server_id = interaction.guild_id
 
         db_cursor = db.cursor()
