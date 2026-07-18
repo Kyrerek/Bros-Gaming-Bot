@@ -29,7 +29,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         except discord.errors.Forbidden:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(f"Bot doens't have permission to add a role to this user. Maybe {bot_role} role is above Bros Gaming Bot role"), ephemeral=True)
-        except:
+        except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(),ephemeral= True)
 
@@ -50,10 +50,10 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         try:
             game = Game(game_id, cc)
         except NameError as e:
-            embed = eg.error_embed(e.args)
+            embed = eg.error_embed(e.args[0])
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
-        except:
+        except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
             return
@@ -75,7 +75,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                                                           game.price,
                                                           not_out))
             db.commit()
-        except:
+        except Exception:
             db.rollback()
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed, ephemeral=True)
@@ -93,7 +93,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     async def game_name_autocomplete(interaction: discord.Interaction, current: str):
         server_id = interaction.guild_id
         db_cursor = db.cursor()
-        db_cursor.execute(f"""SELECT name FROM games
+        db_cursor.execute("""SELECT name FROM games
                    WHERE server_index = %s AND name LIKE %s
                     ORDER BY date DESC
                    LIMIT 25
@@ -110,13 +110,13 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
 
         try:
             db_cursor = db.cursor()
-            db_cursor.execute(f"""SELECT store_id FROM games
+            db_cursor.execute("""SELECT store_id FROM games
                                 WHERE server_index=%s AND name=%s""", (server_id, game_name))
             game_id = db_cursor.fetchone()[0]
-            db_cursor.execute(f"""DELETE FROM games 
+            db_cursor.execute("""DELETE FROM games 
                               WHERE store_id=%s AND server_index=%s""", (game_id, server_id))
             db.commit()
-        except Exception as ex:
+        except Exception:
             db.rollback()
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
@@ -158,7 +158,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         server_id = interaction.guild_id
 
         db_cur = db.cursor()
-        db_cur.execute(f"""SELECT name, link FROM games
+        db_cur.execute("""SELECT name, link FROM games
                         WHERE server_index=%s""", (server_id,))
         games = db_cur.fetchall()
 
@@ -181,7 +181,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         server_id = interaction.guild_id
 
         db_cur = db.cursor()
-        db_cur.execute(f"""SELECT store_id, link FROM games
+        db_cur.execute("""SELECT store_id, link FROM games
                         WHERE server_index=%s""", (server_id,))
         games = db_cur.fetchall()
         
@@ -192,7 +192,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         cc = db_cur.fetchone()[0]
         try:
             game_details = Game(game[0], cc)
-        except:
+        except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
             return
@@ -237,7 +237,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         cc = db_cursor.fetchone()[0]
         try:
             game_details = Game(game[0], cc)
-        except:
+        except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
             return
@@ -274,10 +274,9 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                           SET alert_channel_id=%s
                           WHERE server_id=%s""", (channel_id, server_id))
             db.commit()
-        except:
+        except Exception:
             db.rollback()
-            traceback.print_tb()
-            m = traceback.format_exc()
+            traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
             await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
@@ -347,14 +346,13 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                           SET game_currency=%s
                           WHERE server_id=%s""", (cc, server_id))
             db.commit()
-        except:
+        except Exception:
             db.rollback()
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
             await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
 
-    #TODO: error handling (e.g. game doesnt exist on ggdeals)
     @tree.command(name="lowest_price", description="Get lowest price of a given game")
     @discord.app_commands.describe(game_name = "Name of the game")
     @discord.app_commands.autocomplete(game_name = game_name_autocomplete)
@@ -362,16 +360,33 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         server_id = interaction.guild_id
 
         db_cursor = db.cursor()
-        db_cursor.execute(f"""SELECT store_id FROM games
+        db_cursor.execute("""SELECT store_id FROM games
                             WHERE server_index=%s AND name=%s""", (server_id, game_name))  
         game_record = db_cursor.fetchone()
 
         db_cursor.execute("""SELECT game_currency FROM servers
                        WHERE server_id=%s""", (server_id,))
         cc = db_cursor.fetchone()
-
-        game = Game(game_record[0], cc[0])
-        lowest = game.lowest_price()
+        try:
+            game = Game(game_record[0], cc[0])
+        except NameError as e:
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(e.args[0]), ephemeral=True)
+            return
+        except Exception:
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
+            return
+        try:
+            lowest = game.lowest_price()
+        except AttributeError as e:
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(e.args[0]), ephemeral=True)
+            return
+        except Exception:
+            traceback.print_exc()
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
+            return
         if lowest[0]:
             lowest_retail = lowest[0]+' '+lowest[3]
         else:

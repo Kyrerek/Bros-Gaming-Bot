@@ -43,7 +43,7 @@ class Game:
             try:
                 self.price = data["price_overview"]["final"]
                 self.price_formatted = data["price_overview"]["final_formatted"]
-            except:
+            except Exception:
                 self.price_formatted = "Not mentioned"
         
         self.not_out = data["release_date"]["coming_soon"]

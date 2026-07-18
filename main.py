@@ -1,5 +1,4 @@
 import discord
-from discord.ext import commands
 import logging
 from dotenv import load_dotenv
 import os
@@ -41,9 +40,9 @@ async def on_guild_remove(guild):
     server_id = guild.id
     print(f"Bot removed from: {server_name} {server_id}")
     db_cur = db_con.cursor()
-    db_cur.execute(f"""DELETE FROM games 
+    db_cur.execute("""DELETE FROM games 
                               WHERE server_index=%s""", (server_id,))
-    db_cur.execute(f"""DELETE FROM servers WHERE server_id=%s""", (server_id,))
+    db_cur.execute("""DELETE FROM servers WHERE server_id=%s""", (server_id,))
     db_con.commit()
 
 client.run(token, log_handler=handler, log_level=logging.DEBUG)
