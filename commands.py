@@ -8,6 +8,7 @@ import random
 from game import Game
 import embed_generator as eg
 from field import Field
+from psycopg2.extras import execute_values
 
 bot_role = "Gamer" 
 
@@ -133,10 +134,9 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
             start = self.page*10
             end = start+10
             l_games = self.games[start:end]
-            embed = discord.Embed(title="List of games", 
+            embed = eg.custom_embed(title="List of games", 
                               description="\n".join([f"* [{i[0]}]({i[1]})" for i in l_games]), 
                               color=discord.Color.blue())
-            embed.set_thumbnail(url="https://preview.redd.it/galactus-is-coming-waltuh-v0-nnopft4eilgf1.jpeg?width=640&crop=smart&auto=webp&s=be4554d63dab3ed682f59dc136376e9183d85161")
             embed.set_footer(text=f"Page {self.page+1}/{self.max_page}")
             return embed
         
@@ -164,10 +164,9 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
 
         l_games = games[:10]
 
-        embed = discord.Embed(title="List of games 📜", 
+        embed = eg.custom_embed(title=f"List of games ({len(games)}) 📜", 
                               description="\n".join([f"* [{i[0]}]({i[1]})" for i in l_games]) if games else "First use /add_link to add at least one game", 
                               color=discord.Color.blue())
-        embed.set_thumbnail(url="https://preview.redd.it/galactus-is-coming-waltuh-v0-nnopft4eilgf1.jpeg?width=640&crop=smart&auto=webp&s=be4554d63dab3ed682f59dc136376e9183d85161")
         if games:
             embed.set_footer(text=f"Page 1/{math.ceil(len(games)/10)}")
         view = GamesView(games)
@@ -225,7 +224,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         server_id = interaction.guild_id
 
         db_cursor = db.cursor()
-        db_cursor.execute(f"""SELECT store_id, link FROM games
+        db_cursor.execute("""SELECT store_id, link FROM games
                             WHERE server_index=%s AND name=%s""", (server_id, game_name))  
         game = db_cursor.fetchone()
 
@@ -269,8 +268,6 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         channel_id = channel.id
         server_id = interaction.guild_id
 
-        e = discord.Embed()
-
         try:
             db_cursor = db.cursor()
             db_cursor.execute("""UPDATE servers 
@@ -285,51 +282,74 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         else:
             await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
     
-    #TODO: update every price when changing currency
     @tree.command(name="set_currency", description="Set currency for games")
     @discord.app_commands.describe(cc = "Currency code (default is US)")
     @discord.app_commands.choices(cc = [
-        discord.app_commands.Choice(name="Polish Zloty (PLN)", value="PL"),
         discord.app_commands.Choice(name="US Dollar (USD)", value="US"),
-        discord.app_commands.Choice(name="Euro - Germany (EUR)", value="DE"),
-        discord.app_commands.Choice(name="Euro - France (EUR)", value="FR"),
+        discord.app_commands.Choice(name="Euro (EUR)", value="DE"),
         discord.app_commands.Choice(name="British Pound (GBP)", value="GB"),
-        discord.app_commands.Choice(name="Ukrainian Hryvnia (UAH)", value="UA"),
-        discord.app_commands.Choice(name="Czech Koruna (CZK)", value="CZ"),
-        discord.app_commands.Choice(name="Hungarian Forint (HUF)", value="HU"),
-        discord.app_commands.Choice(name="Norwegian Krone (NOK)", value="NO"),
-        discord.app_commands.Choice(name="Swedish Krona (SEK)", value="SE"),
-        discord.app_commands.Choice(name="Danish Krone (DKK)", value="DK"),
-        discord.app_commands.Choice(name="Swiss Franc (CHF)", value="CH"),
+        discord.app_commands.Choice(name="Polish Złoty (PLN)", value="PL"),
+        discord.app_commands.Choice(name="Japanese Yen (JPY)", value="JP"),
+        discord.app_commands.Choice(name="Chinese Yuan (CNY)", value="CN"),
+        discord.app_commands.Choice(name="South Korean Won (KRW)", value="KR"),
+        discord.app_commands.Choice(name="Indian Rupee (INR)", value="IN"),
+        discord.app_commands.Choice(name="Brazilian Real (BRL)", value="BR"),
+        discord.app_commands.Choice(name="Russian Ruble (RUB)", value="RU"),
         discord.app_commands.Choice(name="Canadian Dollar (CAD)", value="CA"),
         discord.app_commands.Choice(name="Australian Dollar (AUD)", value="AU"),
-        discord.app_commands.Choice(name="Brazilian Real (BRL)", value="BR"),
-        discord.app_commands.Choice(name="Turkish Lira (TRY)", value="TR"),
-        discord.app_commands.Choice(name="Russian Ruble (RUB)", value="RU"),
-        discord.app_commands.Choice(name="Japanese Yen (JPY)", value="JP"),
-        discord.app_commands.Choice(name="South Korean Won (KRW)", value="KR"),
-        discord.app_commands.Choice(name="Chinese Yuan (CNY)", value="CN"),
-        discord.app_commands.Choice(name="Indian Rupee (INR)", value="IN"),
         discord.app_commands.Choice(name="Mexican Peso (MXN)", value="MX"),
-        discord.app_commands.Choice(name="Argentine Peso (ARS)", value="AR"),
-        discord.app_commands.Choice(name="New Zealand Dollar (NZD)", value="NZ"),
-        discord.app_commands.Choice(name="Singapore Dollar (SGD)", value="SG")
+        discord.app_commands.Choice(name="Swiss Franc (CHF)", value="CH"),
+        discord.app_commands.Choice(name="Norwegian Krone (NOK)", value="NO"),
+        discord.app_commands.Choice(name="Hong Kong Dollar (HKD)", value="HK"),
+        discord.app_commands.Choice(name="Singapore Dollar (SGD)", value="SG"),
+        discord.app_commands.Choice(name="Thai Baht (THB)", value="TH"),
+        discord.app_commands.Choice(name="Indonesian Rupiah (IDR)", value="ID"),
+        discord.app_commands.Choice(name="Philippine Peso (PHP)", value="PH"),
+        discord.app_commands.Choice(name="Malaysian Ringgit (MYR)", value="MY"),
+        discord.app_commands.Choice(name="Vietnamese Dong (VND)", value="VN"),
+        discord.app_commands.Choice(name="South African Rand (ZAR)", value="ZA"),
+        discord.app_commands.Choice(name="Ukrainian Hryvnia (UAH)", value="UA"),
+        discord.app_commands.Choice(name="Israeli Shekel (ILS)", value="IL"),
     ])
     async def set_currency(interaction: discord.Interaction, cc: str):
         server_id = interaction.guild_id
-
-        e = discord.Embed()
-
+        db_cursor = db.cursor()
+        db_cursor.execute("""SELECT game_currency FROM servers
+                          WHERE server_id=%s""", (server_id,))
+        server_cc = db_cursor.fetchone()[0]
+        if server_cc == cc:
+            await interaction.response.send_message(embed=eg.success_embed(f"Currency has been already set to {cc}"), ephemeral=True)
+            return
         try:
-            db_cursor = db.cursor()
+            
+            db_cursor.execute("""SELECT store_id FROM games
+                        WHERE server_index=%s""", (server_id,))
+            games = [str(g[0]) for g in db_cursor.fetchall()]
+            games_str = ",".join(games)
+            url = f"https://store.steampowered.com/api/appdetails?appids={games_str}&filters=price_overview&cc={cc}"
+            response = requests.get(url)
+            new_prices = []
+            if response.status_code == 200:
+                data = response.json()
+                for g in games:
+                    if data[g]["success"]:
+                        if data[g]["data"]:
+                            price = data[g]["data"]["price_overview"]["final"]
+                            new_prices.append((int(g), price))
+                        else:
+                            new_prices.append((int(g), 0))
+            update_query = """UPDATE games
+                              SET last_price = data.last_price
+                              FROM (VALUES %s) AS data(store_id, last_price)
+                              WHERE games.store_id = data.store_id"""
+            execute_values(db_cursor, update_query, new_prices)
             db_cursor.execute("""UPDATE servers 
                           SET game_currency=%s
                           WHERE server_id=%s""", (cc, server_id))
             db.commit()
         except:
             db.rollback()
-            traceback.print_tb()
-            m = traceback.format_exc()
+            traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
             await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
