@@ -15,6 +15,7 @@ class Game:
     price_formatted : str = None
     not_out : bool
     release_date : str = None
+    discount : int = None
 
     def _get_game_deatils_by_steam(self, id, currency):
         url = f"https://store.steampowered.com/api/appdetails?appids={id}&cc={currency}"
@@ -43,6 +44,7 @@ class Game:
             try:
                 self.price = data["price_overview"]["final"]
                 self.price_formatted = data["price_overview"]["final_formatted"]
+                self.discount = data["price_overview"]["discount_percent"]
             except Exception:
                 self.price_formatted = "Not mentioned"
         

@@ -1,21 +1,12 @@
 import discord
 from discord.ext import tasks
-import psycopg2
-import requests
+import embed_generator as eg
+from field import Field
+import traceback
+from game import Game
 
 bot_role = "Gamer" 
 
-#TODO: delete
-async def get_game_deatils(id, currency):
-    url = f"https://store.steampowered.com/api/appdetails?appids={id}&cc={currency}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        if data[str(id)]["success"]:
-            return data[str(id)]["data"]
-    return None
-
-#TODO: new game handling and embeds
 async def register_tasks(tree: discord.app_commands.CommandTree, client: discord.Client, db):
 
     @tasks.loop(hours=1)
@@ -36,33 +27,39 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                                   WHERE server_index=%s""", (s[0],))
                 games = db_cursor.fetchall()
                 for g in games:
-                    game_details = await get_game_deatils(g[0], s[2])
+                    game_details = Game(g[0], s[2])
 
                     if game_details is None:
                         continue
                     
-                    if game_details.get("price_overview") is None:
+                    if game_details.not_out:
                         continue
                     
-                    price = game_details["price_overview"]["final"]
-                    if  price < g[1]:
+                    price = game_details.price
+                    try:
+                        if  price < g[1]:
+                            fields = [Field(name="Name", value=game_details.title, inline=True),
+                                    Field(name="New price", value=game_details.price_formatted),
+                                    Field(name="Discount", value=str(game_details.discount)+'%')]
+                            e = eg.custom_embed(title="DISCOUNT ALERT! 💸",
+                                                description=f'[{g[2]}]({g[3]}) is currently on sale!',
+                                                image=game_details.image, 
+                                                color=discord.Color.dark_gold(),
+                                                fields=fields)
 
-                        e = discord.Embed(title="🚨!DISCOUNT ALERT!🚨", color=discord.Color.dark_gold())
-                        e.description = f'[{g[2]}]({g[3]}) is currently on sale! 🚨'
-                        e.set_image(url=game_details["header_image"])
-                        e.add_field(name="Name", value=game_details['name'])
-                        e.add_field(name="New price", value=game_details["price_overview"]["final_formatted"])
-                        e.add_field(name="Discount (%)", value=game_details["price_overview"]["discount_percent"])
+                            await channel.send(content=role.mention, embed=e)
 
-                        await channel.send(content=role.mention, embed=e)
-
-                        db_cursor.execute("""UPDATE games SET last_price = %s
-                                          WHERE store_id=%s""", (price, g[0]))
-                        db.commit()
-                    elif price > g[1]:
-                        db_cursor.execute("""UPDATE games SET last_price = %s
-                                          WHERE store_id=%s""", (price, g[0]))
-                        db.commit()
+                            db_cursor.execute("""UPDATE games SET last_price = %s
+                                            WHERE store_id=%s""", (price, g[0]))
+                            db.commit()
+                        elif price > g[1]:
+                            db_cursor.execute("""UPDATE games SET last_price = %s
+                                            WHERE store_id=%s""", (price, g[0]))
+                            db.commit()
+                    except Exception:
+                        db.rollback()
+                        traceback.print_exc()
+                        continue
     check_sales.start()
 
     @tasks.loop(hours=1)
@@ -83,29 +80,31 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                                   WHERE server_index=%s""", (s[0],))
                 games = db_cursor.fetchall()
                 for g in games:
-                    game_details = await get_game_deatils(g[0], s[2])
+                    game_details = Game(g[0], s[2])
                     
                     if game_details is None:
                         continue
 
-                    if g[1] and not game_details["release_date"]["coming_soon"]:
-                        game_price = ""
-                        try:
-                            game_price = "free" if game_details["is_free"] else game_details["price_overview"]["final_formatted"]
-                        except:
-                            game_price = "Not mentioned"
-
-                        e = discord.Embed(title="🚨!RELEASE ALERT!🚨", color=discord.Color.dark_gold())
-                        e.description = f'[{g[2]}]({g[3]}) has just released! 🚨'
-                        e.set_image(url=game_details["header_image"])
-                        e.add_field(name="Name", value=game_details['name'])
-                        e.add_field(name="Price", value=game_price)
+                    if g[1] and not game_details.not_out:
+                        game_price = game_details.price_formatted
+                        
+                        fields = [Field(name="Name", value=game_details.title, inline=True),
+                                  Field(name="Price", value=game_price)]
+                        e = eg.custom_embed(title="RELEASE ALERT! 📆",
+                                            image=game_details.image,
+                                            description= f'[{g[2]}]({g[3]}) has just released! 🚨',
+                                            color=discord.Color.blurple(),
+                                            fields=fields)
 
                         await channel.send(content=role.mention, embed=e)
-
-                        db_cursor.execute("""UPDATE games SET not_out = %s
-                                          WHERE store_id=%s""", (False, g[0]))
-                        db.commit()
+                        try:
+                            db_cursor.execute("""UPDATE games SET not_out = %s
+                                            WHERE store_id=%s""", (False, g[0]))
+                            db.commit()
+                        except Exception:
+                            db.rollback()
+                            traceback.print_exc()
+                            continue
     check_release.start()
 
 
