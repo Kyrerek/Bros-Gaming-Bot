@@ -4,16 +4,22 @@ import embed_generator as eg
 from field import Field
 import traceback
 from game import Game
+from psycopg_pool import AsyncConnectionPool
 
 bot_role = "Gamer" 
 
-async def register_tasks(tree: discord.app_commands.CommandTree, client: discord.Client, db):
+async def register_tasks(tree: discord.app_commands.CommandTree, client: discord.Client, db_pool : AsyncConnectionPool):
+
+    async def get_servers_info():
+        async with db_pool.connection() as db_con:
+            async with db_con.cursor() as db_cur:
+                await db_cur.execute("""SELECT server_id, alert_channel_id, game_currency FROM servers""")
+                servers = await db_cur.fetchall()
+        return servers
 
     @tasks.loop(hours=1)
     async def check_sales():
-        db_cursor = db.cursor()
-        db_cursor.execute("""SELECT server_id, alert_channel_id, game_currency FROM servers""")
-        servers = db_cursor.fetchall()
+        servers = await get_servers_info()
 
         for s in servers:
             if s[1] is not None:
@@ -22,10 +28,11 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                     continue
                 server = channel.guild
                 role = discord.utils.get(server.roles, name = bot_role)
-
-                db_cursor.execute("""SELECT store_id, last_price, name, link FROM games
-                                  WHERE server_index=%s""", (s[0],))
-                games = db_cursor.fetchall()
+                async with db_pool.connection() as db_con:
+                    async with db_con.cursor() as db_cur:
+                        await db_cur.execute("""SELECT store_id, last_price, name, link FROM games
+                                        WHERE server_index=%s""", (s[0],))
+                        games = await db_cur.fetchall()
                 for g in games:
                     game_details = Game(g[0], s[2])
 
@@ -48,25 +55,23 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                                                 fields=fields)
 
                             await channel.send(content=role.mention, embed=e)
-
-                            db_cursor.execute("""UPDATE games SET last_price = %s
-                                            WHERE store_id=%s""", (price, g[0]))
-                            db.commit()
+                            async with db_pool.connection() as db_con:
+                                async with db_con.cursor() as db_cur:
+                                    await db_cur.execute("""UPDATE games SET last_price = %s
+                                                    WHERE store_id=%s""", (price, g[0]))
                         elif price > g[1]:
-                            db_cursor.execute("""UPDATE games SET last_price = %s
-                                            WHERE store_id=%s""", (price, g[0]))
-                            db.commit()
+                            async with db_pool.connection() as db_con:
+                                async with db_con.cursor() as db_cur:
+                                    await db_cur.execute("""UPDATE games SET last_price = %s
+                                                    WHERE store_id=%s""", (price, g[0]))
                     except Exception:
-                        db.rollback()
                         traceback.print_exc()
                         continue
     check_sales.start()
 
     @tasks.loop(hours=1)
     async def check_release():
-        db_cursor = db.cursor()
-        db_cursor.execute("""SELECT server_id, alert_channel_id, game_currency FROM servers""")
-        servers = db_cursor.fetchall()
+        servers = await get_servers_info()
 
         for s in servers:
             if s[1] is not None:
@@ -76,9 +81,11 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                 server = channel.guild
                 role = discord.utils.get(server.roles, name = bot_role)
 
-                db_cursor.execute("""SELECT store_id, not_out, name, link FROM games
-                                  WHERE server_index=%s""", (s[0],))
-                games = db_cursor.fetchall()
+                async with db_pool.connection() as db_con:
+                    async with db_con.cursor() as db_cur:
+                        await db_cur.execute("""SELECT store_id, not_out, name, link FROM games
+                                        WHERE server_index=%s""", (s[0],))
+                        games = await db_cur.fetchall()
                 for g in games:
                     game_details = Game(g[0], s[2])
                     
@@ -98,11 +105,11 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
 
                         await channel.send(content=role.mention, embed=e)
                         try:
-                            db_cursor.execute("""UPDATE games SET not_out = %s
-                                            WHERE store_id=%s""", (False, g[0]))
-                            db.commit()
+                            async with db_pool.connection() as db_con:
+                                async with db_con.cursor() as db_cur:
+                                    await db_cur.execute("""UPDATE games SET not_out = %s
+                                                    WHERE store_id=%s""", (False, g[0]))
                         except Exception:
-                            db.rollback()
                             traceback.print_exc()
                             continue
     check_release.start()

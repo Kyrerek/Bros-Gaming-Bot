@@ -7,6 +7,5 @@ requires-python = ">=3.14"
 dependencies = ["discord.py", 
     "python-dotenv", 
     "requests", 
-    "psycopg2-binary; sys_platform == 'linux'",
-    "psycopg2; sys_platform == 'darwin'"
+    "psycopg[binary,pool]"
     ]

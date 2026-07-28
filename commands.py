@@ -8,11 +8,12 @@ import random
 from game import Game
 import embed_generator as eg
 from field import Field
-from psycopg2.extras import execute_values
+from psycopg_pool import AsyncConnectionPool
+import psycopg
 
 bot_role = "Gamer" 
 
-async def register_commands(tree: discord.app_commands.CommandTree, client: discord.Client, db):
+async def register_commands(tree: discord.app_commands.CommandTree, client: discord.Client, db_pool : AsyncConnectionPool):
 
     @tree.command(name="subscribe", description="Get a role for gaming alerts")
     async def sub(interaction: discord.Interaction):
@@ -33,18 +34,23 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(),ephemeral= True)
 
+    async def get_currency(server_id : int):
+        async with db_pool.connection() as db_con:
+            async with db_con.cursor() as db_cur:
+                await db_cur.execute("""SELECT game_currency FROM servers
+                                WHERE server_id=%s""", (server_id,))
+                row = await db_cur.fetchone()
+        return row[0]
+
     @tree.command(name="add_link", description="Add a game by a link")
     @discord.app_commands.describe(link="Link to the game")
     async def add_link(interaction: discord.Interaction, link: str):
         if not re.match(r"https://store.steampowered.com/app/\d+/\w+/", link):
-            await interaction.response.send_message(embed=eg.error_embed("This link is not a link to steam app"))
+            await interaction.response.send_message(embed=eg.error_embed("This link is not a link to steam app"), ephemeral=True)
             return
         server_id = interaction.guild_id
 
-        db_cursor = db.cursor()
-        db_cursor.execute("""SELECT game_currency FROM servers
-                          WHERE server_id=%s""", (server_id,))
-        cc = db_cursor.fetchone()[0]
+        cc = await get_currency(server_id)
 
         game_id = re.search(r'/app/(\d+)', link).group(1)
         try:
@@ -65,20 +71,22 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         curr_date = datetime.now()
 
         try:
-            db_cursor.execute("""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price, not_out) VALUES
-                            (%s, %s, %s, %s, %s, %s, %s, %s)""", (server_id, 
-                                                          game_name, 
-                                                          link, 
-                                                          curr_date, 
-                                                          game_id, 
-                                                          "steam", 
-                                                          game.price,
-                                                          not_out))
-            db.commit()
+            async with db_pool.connection() as db_con:
+                async with db_con.cursor() as db_cur:
+                    await db_cur.execute("""INSERT INTO games(server_index, name, link, date, store_id, platform, last_price, not_out) VALUES
+                                    (%s, %s, %s, %s, %s, %s, %s, %s)""", (server_id, 
+                                                                game_name, 
+                                                                link, 
+                                                                curr_date, 
+                                                                game_id, 
+                                                                "steam", 
+                                                                game.price,
+                                                                not_out))
+        except psycopg.errors.UniqueViolation:
+            await interaction.response.send_message(embed=eg.error_embed(description="This game has been already added"), ephemeral=True)
         except Exception:
-            db.rollback()
             traceback.print_exc()
-            await interaction.response.send_message(embed=eg.error_embed, ephemeral=True)
+            await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
             fields = [Field(name="Name", value=game_name, inline=True), Field(name="Price", value=game_price)]
             if not_out:
@@ -92,14 +100,15 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     
     async def game_name_autocomplete(interaction: discord.Interaction, current: str):
         server_id = interaction.guild_id
-        db_cursor = db.cursor()
-        db_cursor.execute("""SELECT name FROM games
-                   WHERE server_index = %s AND name LIKE %s
-                    ORDER BY date DESC
-                   LIMIT 25
-                   """,
-                   (server_id, current+'%'))
-        games = db_cursor.fetchall()
+        async with db_pool.connection() as db_con:
+            async with db_con.cursor() as db_cur:
+                await db_cur.execute("""SELECT name FROM games
+                        WHERE server_index = %s AND name LIKE %s
+                            ORDER BY date DESC
+                        LIMIT 25
+                        """,
+                        (server_id, current+'%'))
+                games = await db_cur.fetchall()
         return [discord.app_commands.Choice(name=g[0], value=g[0]) for g in games]
 
     @tree.command(name="delete_game", description="Delete a game")
@@ -109,15 +118,15 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         server_id = interaction.guild_id
 
         try:
-            db_cursor = db.cursor()
-            db_cursor.execute("""SELECT store_id FROM games
-                                WHERE server_index=%s AND name=%s""", (server_id, game_name))
-            game_id = db_cursor.fetchone()[0]
-            db_cursor.execute("""DELETE FROM games 
-                              WHERE store_id=%s AND server_index=%s""", (game_id, server_id))
-            db.commit()
+            async with db_pool.connection() as db_con:
+                async with db_con.cursor() as db_cur:
+                    await db_cur.execute("""SELECT store_id FROM games
+                                        WHERE server_index=%s AND name=%s""", (server_id, game_name))
+                    row = await db_cur.fetchone()
+                    game_id = row[0]
+                    await db_cur.execute("""DELETE FROM games 
+                                    WHERE store_id=%s AND server_index=%s""", (game_id, server_id))
         except Exception:
-            db.rollback()
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
@@ -157,10 +166,11 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     async def list_games(interaction: discord.Interaction):
         server_id = interaction.guild_id
 
-        db_cur = db.cursor()
-        db_cur.execute("""SELECT name, link FROM games
-                        WHERE server_index=%s""", (server_id,))
-        games = db_cur.fetchall()
+        async with db_pool.connection() as db_con:
+            async with db_con.cursor() as db_cur:
+                await db_cur.execute("""SELECT name, link FROM games
+                                WHERE server_index=%s""", (server_id,))
+                games = await db_cur.fetchall()
 
         l_games = games[:10]
 
@@ -180,16 +190,16 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     async def get_random(interaction: discord.Interaction):
         server_id = interaction.guild_id
 
-        db_cur = db.cursor()
-        db_cur.execute("""SELECT store_id, link FROM games
-                        WHERE server_index=%s""", (server_id,))
-        games = db_cur.fetchall()
+        async with db_pool.connection() as db_con:
+            async with db_con.cursor() as db_cur:
+                await db_cur.execute("""SELECT store_id, link FROM games
+                                WHERE server_index=%s""", (server_id,))
+                games = await db_cur.fetchall()
         
         game = random.choice(games)
 
-        db_cur.execute("""SELECT game_currency FROM servers
-                       WHERE server_id=%s""", (server_id,))
-        cc = db_cur.fetchone()[0]
+        cc = await get_currency(server_id)
+
         try:
             game_details = Game(game[0], cc)
         except Exception:
@@ -223,18 +233,17 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     async def get_details(interaction: discord.Interaction, game_name: str):
         server_id = interaction.guild_id
 
-        db_cursor = db.cursor()
-        db_cursor.execute("""SELECT store_id, link FROM games
-                            WHERE server_index=%s AND name=%s""", (server_id, game_name))  
-        game = db_cursor.fetchone()
+        async with db_pool.connection() as db_con:
+            async with db_con.cursor() as db_cur:
+                await db_cur.execute("""SELECT store_id, link FROM games
+                                    WHERE server_index=%s AND name=%s""", (server_id, game_name))  
+                game = await db_cur.fetchone()
 
         if game is None:
             await interaction.response.send_message(embed=eg.error_embed(description=f"{game_name} does not exist on the list"), ephemeral=True)
             return
 
-        db_cursor.execute("""SELECT game_currency FROM servers
-                       WHERE server_id=%s""", (server_id,))
-        cc = db_cursor.fetchone()[0]
+        cc = await get_currency(server_id)
         try:
             game_details = Game(game[0], cc)
         except Exception:
@@ -269,13 +278,12 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         server_id = interaction.guild_id
 
         try:
-            db_cursor = db.cursor()
-            db_cursor.execute("""UPDATE servers 
-                          SET alert_channel_id=%s
-                          WHERE server_id=%s""", (channel_id, server_id))
-            db.commit()
+            async with db_pool.connection() as db_con:
+                async with db_con.cursor() as db_cur:
+                    await db_cur.execute("""UPDATE servers 
+                                SET alert_channel_id=%s
+                                WHERE server_id=%s""", (channel_id, server_id))
         except Exception:
-            db.rollback()
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
@@ -312,42 +320,47 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     ])
     async def set_currency(interaction: discord.Interaction, cc: str):
         server_id = interaction.guild_id
-        db_cursor = db.cursor()
-        db_cursor.execute("""SELECT game_currency FROM servers
-                          WHERE server_id=%s""", (server_id,))
-        server_cc = db_cursor.fetchone()[0]
+        server_cc = await get_currency(server_id)
         if server_cc == cc:
             await interaction.response.send_message(embed=eg.success_embed(f"Currency has been already set to {cc}"), ephemeral=True)
             return
         try:
-            
-            db_cursor.execute("""SELECT store_id FROM games
-                        WHERE server_index=%s""", (server_id,))
-            games = [str(g[0]) for g in db_cursor.fetchall()]
+            async with db_pool.connection() as db_con:
+                async with db_con.cursor() as db_cur:
+                    await db_cur.execute("""SELECT store_id FROM games
+                                WHERE server_index=%s""", (server_id,))
+                    games = [str(g[0]) for g in await db_cur.fetchall()]
             games_str = ",".join(games)
             url = f"https://store.steampowered.com/api/appdetails?appids={games_str}&filters=price_overview&cc={cc}"
             response = requests.get(url)
-            new_prices = []
+            ids = []
+            prices = []
             if response.status_code == 200:
                 data = response.json()
                 for g in games:
                     if data[g]["success"]:
                         if data[g]["data"]:
                             price = data[g]["data"]["price_overview"]["final"]
-                            new_prices.append((int(g), price))
+                            ids.append(int(g))
+                            prices.append(price)
                         else:
-                            new_prices.append((int(g), 0))
-            update_query = """UPDATE games
-                              SET last_price = data.last_price
-                              FROM (VALUES %s) AS data(store_id, last_price)
-                              WHERE games.store_id = data.store_id"""
-            execute_values(db_cursor, update_query, new_prices)
-            db_cursor.execute("""UPDATE servers 
-                          SET game_currency=%s
-                          WHERE server_id=%s""", (cc, server_id))
-            db.commit()
+                            ids.append(int(g))
+                            prices.append(0)
+            async with db_pool.connection() as db_con:
+                async with db_con.cursor() as db_cur:
+                    update_query = """UPDATE games
+                                    SET last_price = data.last_price
+                                    FROM (
+                                        SELECT unnest(%s::bigint[]) as store_id,
+                                        unnest(%s::int[]) as last_price
+                                    ) 
+                                    AS data
+                                    WHERE games.store_id = data.store_id"""
+                    await db_cur.execute(update_query, (ids, prices))
+                    await db_cur.execute("""UPDATE servers 
+                                SET game_currency=%s
+                                WHERE server_id=%s""", (cc, server_id))
         except Exception:
-            db.rollback()
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
         else:
@@ -359,16 +372,15 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
     async def lowest_price(interaction: discord.Interaction, game_name: str):
         server_id = interaction.guild_id
 
-        db_cursor = db.cursor()
-        db_cursor.execute("""SELECT store_id FROM games
-                            WHERE server_index=%s AND name=%s""", (server_id, game_name))  
-        game_record = db_cursor.fetchone()
+        async with db_pool.connection() as db_con:
+            async with db_con.cursor() as db_cur:
+                await db_cur.execute("""SELECT store_id FROM games
+                                    WHERE server_index=%s AND name=%s""", (server_id, game_name))  
+                game_record = await db_cur.fetchone()
 
-        db_cursor.execute("""SELECT game_currency FROM servers
-                       WHERE server_id=%s""", (server_id,))
-        cc = db_cursor.fetchone()
+        cc = await get_currency(server_id)
         try:
-            game = Game(game_record[0], cc[0])
+            game = Game(game_record[0], cc)
         except NameError as e:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(e.args[0]), ephemeral=True)
