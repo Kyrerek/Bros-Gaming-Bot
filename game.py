@@ -19,7 +19,7 @@ class Game:
 
     def _get_game_deatils_by_steam(self, id, currency):
         url = f"https://store.steampowered.com/api/appdetails?appids={id}&cc={currency}"
-        response = requests.get(url)
+        response = requests.get(url, timeout=20)
         if response.status_code == 200:
             data = response.json()
             data[str(id)]["data"]["short_description"] = data[str(id)]["data"]["short_description"].replace("&quot;", "\"")
@@ -56,7 +56,7 @@ class Game:
         if self.currency.lower() not in ["au", "be", "br", "ca", "ch", "de", "dk", "es", "eu", "fi", "fr", "gb", "ie", "it", "nl", "no", "pl", "se", "us"]:
             raise AttributeError(f"{self.currency} is not supported on gg.deals")
         url = f"https://api.gg.deals/v1/prices/by-steam-app-id/?ids={self.id}&key={gg_token}&region={self.currency.lower()}"
-        response = requests.get(url)
+        response = requests.get(url, timeout=20)
         if response.status_code == 200:
             data = response.json()
             if data["success"]:

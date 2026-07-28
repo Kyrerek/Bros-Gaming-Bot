@@ -33,11 +33,12 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                                         WHERE server_index=%s""", (s[0],))
                         games = await db_cur.fetchall()
                 for g in games:
-                    game_details = Game(g[0], s[2])
-
-                    if game_details is None:
+                    try:
+                        game_details = Game(g[0], s[2])
+                    except Exception:
+                        traceback.print_exc()
                         continue
-                    
+
                     if game_details.not_out:
                         continue
                     
@@ -86,9 +87,10 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                                         WHERE server_index=%s""", (s[0],))
                         games = await db_cur.fetchall()
                 for g in games:
-                    game_details = Game(g[0], s[2])
-                    
-                    if game_details is None:
+                    try:
+                        game_details = Game(g[0], s[2])
+                    except Exception:
+                        traceback.print_exc()
                         continue
 
                     if g[1] and not game_details.not_out:

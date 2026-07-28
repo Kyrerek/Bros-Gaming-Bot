@@ -54,6 +54,9 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         game_id = re.search(r'/app/(\d+)', link).group(1)
         try:
             game = Game(game_id, cc)
+        except requests.exceptions.Timeout:
+            await interaction.response.send_message(embed=eg.error_embed("Timeout. Try again"), ephemeral=True)
+            return
         except NameError as e:
             embed = eg.error_embed(e.args[0])
             await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -204,6 +207,9 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
 
         try:
             game_details = Game(game[0], cc)
+        except requests.exceptions.Timeout:
+            await interaction.response.send_message(embed=eg.error_embed("Timeout. Try again"), ephemeral=True)
+            return
         except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
@@ -248,6 +254,9 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         cc = await get_currency(server_id)
         try:
             game_details = Game(game[0], cc)
+        except requests.exceptions.Timeout:
+            await interaction.response.send_message(embed=eg.error_embed("Timeout. Try again"), ephemeral=True)
+            return
         except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
@@ -335,7 +344,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
             if games:
                 games_str = ",".join(games)
                 url = f"https://store.steampowered.com/api/appdetails?appids={games_str}&filters=price_overview&cc={cc}"
-                response = requests.get(url)
+                response = requests.get(url, timeout=20)
                 ids = []
                 prices = []
                 if response.status_code == 200:
@@ -364,6 +373,8 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                     await db_cur.execute("""UPDATE servers 
                                 SET game_currency=%s
                                 WHERE server_id=%s""", (cc, server_id))
+        except requests.exceptions.Timeout:
+            await interaction.response.send_message(embed=eg.error_embed("Timeout. Try again"), ephemeral=True)
         except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
@@ -388,6 +399,9 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
         cc = await get_currency(server_id)
         try:
             game = Game(game_record[0], cc)
+        except requests.exceptions.Timeout:
+            await interaction.response.send_message(embed=eg.error_embed("Timeout. Try again"), ephemeral=True)
+            return
         except NameError as e:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(e.args[0]), ephemeral=True)
@@ -398,6 +412,9 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
             return
         try:
             lowest = game.lowest_price()
+        except requests.exceptions.Timeout:
+            await interaction.response.send_message(embed=eg.error_embed("Timeout. Try again"), ephemeral=True)
+            return
         except AttributeError as e:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(e.args[0]), ephemeral=True)
