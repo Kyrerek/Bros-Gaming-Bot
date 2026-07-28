@@ -5,8 +5,7 @@ from field import Field
 import traceback
 from game import Game
 from psycopg_pool import AsyncConnectionPool
-
-bot_role = "Gamer" 
+from config import ALERT_ROLE
 
 async def register_tasks(tree: discord.app_commands.CommandTree, client: discord.Client, db_pool : AsyncConnectionPool):
 
@@ -27,7 +26,7 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                 if channel is None:
                     continue
                 server = channel.guild
-                role = discord.utils.get(server.roles, name = bot_role)
+                role = discord.utils.get(server.roles, name = ALERT_ROLE)
                 async with db_pool.connection() as db_con:
                     async with db_con.cursor() as db_cur:
                         await db_cur.execute("""SELECT store_id, last_price, name, link FROM games
@@ -79,7 +78,7 @@ async def register_tasks(tree: discord.app_commands.CommandTree, client: discord
                 if channel is None:
                     continue
                 server = channel.guild
-                role = discord.utils.get(server.roles, name = bot_role)
+                role = discord.utils.get(server.roles, name = ALERT_ROLE)
 
                 async with db_pool.connection() as db_con:
                     async with db_con.cursor() as db_cur:

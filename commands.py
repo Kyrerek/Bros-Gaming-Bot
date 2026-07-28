@@ -10,14 +10,13 @@ import embed_generator as eg
 from field import Field
 from psycopg_pool import AsyncConnectionPool
 import psycopg
-
-bot_role = "Gamer" 
+from config import ALERT_ROLE
 
 async def register_commands(tree: discord.app_commands.CommandTree, client: discord.Client, db_pool : AsyncConnectionPool):
 
     @tree.command(name="subscribe", description="Get a role for gaming alerts")
     async def sub(interaction: discord.Interaction):
-        role = discord.utils.get(interaction.guild.roles, name=bot_role)
+        role = discord.utils.get(interaction.guild.roles, name=ALERT_ROLE)
         try:
             if role:
                 if role in interaction.user.roles:
@@ -26,10 +25,10 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                 await interaction.user.add_roles(role)
                 await interaction.response.send_message(embed=eg.success_embed(), ephemeral=True)
             else:
-                await interaction.response.send_message(embed=eg.error_embed(f"Role {bot_role} doens't exist on this server. Remember to put it under Bros Gaming Bot role!"), ephemeral=True)
+                await interaction.response.send_message(embed=eg.error_embed(f"Role {ALERT_ROLE} doens't exist on this server. Remember to put it under Bros Gaming Bot role!"), ephemeral=True)
         except discord.errors.Forbidden:
             traceback.print_exc()
-            await interaction.response.send_message(embed=eg.error_embed(f"Bot doens't have permission to add a role to this user. Maybe {bot_role} role is above Bros Gaming Bot role"), ephemeral=True)
+            await interaction.response.send_message(embed=eg.error_embed(f"Bot doens't have permission to add a role to this user. Maybe {ALERT_ROLE} role is above Bros Gaming Bot role"), ephemeral=True)
         except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(),ephemeral= True)
@@ -126,6 +125,8 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                     game_id = row[0]
                     await db_cur.execute("""DELETE FROM games 
                                     WHERE store_id=%s AND server_index=%s""", (game_id, server_id))
+        except TypeError:
+            await interaction.response.send_message(embed=eg.error_embed(description=f"{game_name} does not appear on the list"), ephemeral=True)
         except Exception:
             traceback.print_exc()
             await interaction.response.send_message(embed=eg.error_embed(), ephemeral=True)
@@ -195,7 +196,8 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                 await db_cur.execute("""SELECT store_id, link FROM games
                                 WHERE server_index=%s""", (server_id,))
                 games = await db_cur.fetchall()
-        
+        if not games:
+            await interaction.response.send_message(embed=eg.error_embed("The game list is empty. Use /add_link first"), ephemeral=True)
         game = random.choice(games)
 
         cc = await get_currency(server_id)
@@ -240,7 +242,7 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                 game = await db_cur.fetchone()
 
         if game is None:
-            await interaction.response.send_message(embed=eg.error_embed(description=f"{game_name} does not exist on the list"), ephemeral=True)
+            await interaction.response.send_message(embed=eg.error_embed(description=f"{game_name} does not appear on the list"), ephemeral=True)
             return
 
         cc = await get_currency(server_id)
@@ -330,33 +332,35 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                     await db_cur.execute("""SELECT store_id FROM games
                                 WHERE server_index=%s""", (server_id,))
                     games = [str(g[0]) for g in await db_cur.fetchall()]
-            games_str = ",".join(games)
-            url = f"https://store.steampowered.com/api/appdetails?appids={games_str}&filters=price_overview&cc={cc}"
-            response = requests.get(url)
-            ids = []
-            prices = []
-            if response.status_code == 200:
-                data = response.json()
-                for g in games:
-                    if data[g]["success"]:
-                        if data[g]["data"]:
-                            price = data[g]["data"]["price_overview"]["final"]
-                            ids.append(int(g))
-                            prices.append(price)
-                        else:
-                            ids.append(int(g))
-                            prices.append(0)
+            if games:
+                games_str = ",".join(games)
+                url = f"https://store.steampowered.com/api/appdetails?appids={games_str}&filters=price_overview&cc={cc}"
+                response = requests.get(url)
+                ids = []
+                prices = []
+                if response.status_code == 200:
+                    data = response.json()
+                    for g in games:
+                        if data[g]["success"]:
+                            if data[g]["data"]:
+                                price = data[g]["data"]["price_overview"]["final"]
+                                ids.append(int(g))
+                                prices.append(price)
+                            else:
+                                ids.append(int(g))
+                                prices.append(0)
             async with db_pool.connection() as db_con:
                 async with db_con.cursor() as db_cur:
-                    update_query = """UPDATE games
-                                    SET last_price = data.last_price
-                                    FROM (
-                                        SELECT unnest(%s::bigint[]) as store_id,
-                                        unnest(%s::int[]) as last_price
-                                    ) 
-                                    AS data
-                                    WHERE games.store_id = data.store_id"""
-                    await db_cur.execute(update_query, (ids, prices))
+                    if games:
+                        update_query = """UPDATE games
+                                        SET last_price = data.last_price
+                                        FROM (
+                                            SELECT unnest(%s::bigint[]) as store_id,
+                                            unnest(%s::int[]) as last_price
+                                        ) 
+                                        AS data
+                                        WHERE games.store_id = data.store_id"""
+                        await db_cur.execute(update_query, (ids, prices))
                     await db_cur.execute("""UPDATE servers 
                                 SET game_currency=%s
                                 WHERE server_id=%s""", (cc, server_id))
@@ -377,7 +381,10 @@ async def register_commands(tree: discord.app_commands.CommandTree, client: disc
                 await db_cur.execute("""SELECT store_id FROM games
                                     WHERE server_index=%s AND name=%s""", (server_id, game_name))  
                 game_record = await db_cur.fetchone()
-
+        if game_record is None:
+            await interaction.response.send_message(embed=eg.error_embed(description=f"{game_name} does not appear on the list"), ephemeral=True)
+            return
+        
         cc = await get_currency(server_id)
         try:
             game = Game(game_record[0], cc)
