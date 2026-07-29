@@ -659,7 +659,7 @@ async def register_commands(
         commands_field_1 = f"""1. `/subscribe` - gives you a role that bot uses to alert users about sales and releases of games. For this feature to work, admin must create a role named **\"{ALERT_ROLE}\"** and put it under **\"Bros Gaming Bot\"** role.
         \n1. `/add_link [link]` - command to add a game to the list by a link from platform with games. Available platforms: Steam. 
         * `link` - link to the game from available platform
-        \n1. `/delete_game [game_name]` - delete a game from the list by a name. This command give you a list of all previously added games.
+        \n1. `/delete_game [game_name]` - delete a game from the list by a name.
         * `game_name` - name of the game to delete
         \n1. `/list_games` - lists previously added games (10 per page), sorted by date added.
         \n1. `/get_random` - gives you a random game from the list of already released games.
